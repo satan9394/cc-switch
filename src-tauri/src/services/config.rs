@@ -77,5 +77,5 @@ impl ConfigService {
         }
 
         Ok(())
-    }
 }
+

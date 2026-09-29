@@ -69,6 +69,8 @@ const TOOL_NAMES = [
   "hermes",
   "pi",
   "mcode",
+  "dsh",
+
 ] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 type ToolLifecycleAction = "install" | "update";
@@ -195,6 +197,8 @@ const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   hermes: "Hermes",
   pi: "Pi",
   mcode: "MiniMax Code",
+  dsh: "DeepSeek Harness",
+
 };
 
 // 后端返回的 tool 是 string；这里收敛唯一的 ToolName 断言与兜底，供升级确认
@@ -213,6 +217,8 @@ const TOOL_APP_IDS: Record<ToolName, AppId> = {
   hermes: "hermes",
   pi: "pi",
   mcode: "mcode",
+  dsh: "deepseek-harness",
+
 };
 
 // 工具版本探测代价高：每个工具一次 `--version` 子进程 + 一次 npm/github/pypi 网络请求。
@@ -1144,7 +1150,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
             const installedButBroken = Boolean(tool?.installed_but_broken);
             // loading 和 broken 都没有可执行动作；其余按是否已装/是否过期选择。
             const action: ToolLifecycleAction | null =
-              isToolVersionLoading || installedButBroken
+              toolName === "dsh" || isToolVersionLoading || installedButBroken
                 ? null
                 : !tool?.version
                   ? "install"

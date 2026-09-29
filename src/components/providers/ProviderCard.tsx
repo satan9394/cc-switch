@@ -138,6 +138,7 @@ const extractApiUrl = (provider: Provider, fallbackText: string) => {
     }
 
     const directBaseUrl =
+      object.baseURL ||
       object.baseUrl ||
       object.base_url ||
       object.options?.baseURL ||
@@ -256,6 +257,23 @@ export function ProviderCard({
     return config.models
       .filter((model) => typeof model.id === "string" && model.id.trim())
       .map((model) => ({ id: model.id, name: model.name }));
+  }, [appId, provider.settingsConfig]);
+
+  const dshModels = useMemo(() => {
+    if (appId !== "deepseek-harness") return [];
+    const models = (provider.settingsConfig as Record<string, unknown>)?.models;
+    if (!Array.isArray(models)) return [];
+    // Bare strings are a valid native catalog shape; treat them as model ids
+    // the same way the form's normalizeDshModels does.
+    return models
+      .map((model) =>
+        typeof model === "string"
+          ? model.trim()
+          : model && typeof model === "object"
+            ? String((model as Record<string, unknown>).id ?? "").trim()
+            : "",
+      )
+      .filter(Boolean);
   }, [appId, provider.settingsConfig]);
 
   const isClickableUrl = useMemo(() => {
@@ -535,6 +553,22 @@ export function ProviderCard({
                   })}
                 </span>
               )}
+
+              {appId === "deepseek-harness" && dshModels.length > 0 && (
+                <ProviderStatusBadge
+                  tone="info"
+                  label={`${dshModels.length} ${t("provider.models", { defaultValue: "models" })}`}
+                />
+              )}
+
+              {appId === "deepseek-harness" &&
+                isCurrent &&
+                provider.meta?.dshCurrentModel && (
+                  <ProviderStatusBadge
+                    tone="success"
+                    label={provider.meta.dshCurrentModel}
+                  />
+                )}
             </div>
 
             {codexOfficialIdentity && codexOfficialIdentity !== "api_key" ? (
@@ -754,7 +788,11 @@ export function ProviderCard({
               isDefaultModel={isDefaultModel}
               isRemovalProtected={isRemovalProtected}
               isStateChangeProtected={isStateChangeProtected}
-              defaultModelOptions={openclawDefaultModelOptions}
+              defaultModelOptions={
+                appId === "deepseek-harness"
+                  ? dshModels.map((id) => ({ id, name: id }))
+                  : openclawDefaultModelOptions
+              }
               onSetAsDefault={onSetAsDefault}
             />
           </div>

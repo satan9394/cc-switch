@@ -30,6 +30,9 @@ pub(crate) fn provider_exists_in_live_config(
         AppType::Hermes => crate::hermes_config::get_providers()
             .map(|providers| providers.contains_key(provider_id)),
         AppType::Pi => crate::pi_config::pi_provider_exists(provider_id),
+        AppType::DeepSeekHarness => {
+            crate::deepseek_harness_config::provider_exists_in_live_config()
+        }
         AppType::Mcode => crate::mcode_config::get_providers()
             .map(|providers| providers.contains_key(provider_id)),
         _ => Ok(false),
@@ -301,7 +304,8 @@ fn settings_contain_common_config(app_type: &AppType, settings: &Value, snippet:
         | AppType::Hermes
         | AppType::Pi
         | AppType::Mcode
-        | AppType::ClaudeDesktop => false,
+        | AppType::ClaudeDesktop
+        | AppType::DeepSeekHarness => false,
     }
 }
 
@@ -377,7 +381,8 @@ pub(crate) fn remove_common_config_from_settings(
         | AppType::Hermes
         | AppType::Pi
         | AppType::Mcode
-        | AppType::ClaudeDesktop => Ok(settings.clone()),
+        | AppType::ClaudeDesktop
+        | AppType::DeepSeekHarness => Ok(settings.clone()),
     }
 }
 
@@ -388,6 +393,7 @@ pub(crate) fn write_live_for_state(
     app_type: &AppType,
     provider: &Provider,
 ) -> Result<(), AppError> {
+
     let db = state.db.as_ref();
     if matches!(app_type, AppType::Claude) {
         // Claude 不再整份写，也不合并片段：只替换关键字段和独有字段。live 当前对应的
@@ -692,6 +698,18 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             crate::hermes_config::set_provider(&provider.id, provider.settings_config.clone())?;
             log::debug!("Hermes provider '{}' written to live config", provider.id);
         }
+        AppType::DeepSeekHarness => {
+            let config = serde_json::from_value::<
+                crate::deepseek_harness_config::DeepSeekHarnessProviderConfig,
+            >(provider.settings_config.clone())
+            .map_err(|error| {
+                AppError::Config(format!(
+                    "Invalid DeepSeek Harness provider '{}': {error}",
+                    provider.id
+                ))
+            })?;
+            crate::deepseek_harness_config::set_provider(&provider.id, &config)?;
+        }
         AppType::Mcode => {
             crate::mcode_config::set_provider(&provider.id, provider.settings_config.clone())?
         }
@@ -742,7 +760,11 @@ pub(crate) fn sync_additive_app_to_live(
     state: &AppState,
     app_type: &AppType,
 ) -> Result<(), AppError> {
+    if matches!(app_type, AppType::DeepSeekHarness) {
+        return Ok(());
+    }
     sync_all_providers_to_live(state, app_type)?;
+
 
     // 本函数语义是"把这个应用同步到 live"，MCP 重投影也只针对该应用；
     // 全量 sync_all_enabled 会把无关应用的 live 损坏牵连进来。投影失败
@@ -832,7 +854,10 @@ pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
 
     // Sync providers based on mode
     for app_type in AppType::all() {
-        if matches!(app_type, AppType::Pi | AppType::Mcode) {
+        if matches!(
+            app_type,
+            AppType::Pi | AppType::DeepSeekHarness | AppType::Mcode
+        ) {
             continue;
         }
         let result = if app_type.is_additive_mode() {
@@ -991,6 +1016,10 @@ pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
         AppType::Pi => Err(AppError::InvalidInput(
             "Pi providers are read from Pi's native models file".to_string(),
         )),
+        AppType::DeepSeekHarness => Err(AppError::InvalidInput(
+            "DeepSeek Harness settings are read through its dedicated configuration module"
+                .to_string(),
+        )),
     }
 }
 
@@ -1001,7 +1030,7 @@ pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
 pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool, AppError> {
     // Additive mode apps (OpenCode, OpenClaw) should use their dedicated
     // import_xxx_providers_from_live functions, not this generic default config import
-    if app_type.is_additive_mode() {
+    if app_type.is_additive_mode() || matches!(app_type, AppType::DeepSeekHarness) {
         return Ok(false);
     }
 
@@ -1095,9 +1124,17 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
                 "config": config_obj
             })
         }
-        // OpenCode, OpenClaw and Hermes use additive mode and are handled by early return above
-        AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode => {
-            unreachable!("additive mode apps are handled by early return")
+        // OpenCode, OpenClaw and Hermes use additive mode and are handled by early return above.
+        // DeepSeek Harness uses one exclusive route, but importing live settings needs its
+        // credentials file as well as settings.yaml, so it is not handled by this generic path.
+        // MCode providers are likewise managed by their own page.
+        AppType::OpenCode
+        | AppType::OpenClaw
+        | AppType::Hermes
+        | AppType::Pi
+        | AppType::DeepSeekHarness
+        | AppType::Mcode => {
+            unreachable!("unsupported apps are handled by early return")
         }
     };
 
@@ -1166,7 +1203,7 @@ pub fn should_import_default_config_on_startup(
     state: &AppState,
     app_type: &AppType,
 ) -> Result<bool, AppError> {
-    if app_type.is_additive_mode() {
+    if app_type.is_additive_mode() || matches!(app_type, AppType::DeepSeekHarness) {
         return Ok(false);
     }
 

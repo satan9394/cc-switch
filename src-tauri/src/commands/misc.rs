@@ -111,9 +111,10 @@ pub struct ToolVersion {
     wsl_distro: Option<String>,
 }
 
-const VALID_TOOLS: [&str; 9] = [
-    "claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes", "pi", "mcode",
+const VALID_TOOLS: [&str; 10] = [
+    "claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes", "pi", "mcode", "dsh",
 ];
+
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -435,7 +436,9 @@ fn tool_display_name(tool: &str) -> &'static str {
         "hermes" => "Hermes",
         "pi" => "Pi",
         "mcode" => "MiniMax Code",
+        "dsh" => "DeepSeek Harness",
         _ => "Unknown",
+
     }
 }
 
@@ -957,7 +960,9 @@ async fn get_single_tool_version_impl(
     let client = crate::proxy::http_client::get();
 
     // 1. 获取本地版本
-    let probe = if let Some(distro) = wsl_distro.as_deref() {
+    let probe = if tool == "dsh" {
+        try_get_dsh_desktop_version()
+    } else if let Some(distro) = wsl_distro.as_deref() {
         try_get_version_wsl(tool, distro, wsl_shell, wsl_shell_flag)
     } else {
         #[cfg(target_os = "windows")]
@@ -1020,7 +1025,9 @@ async fn get_single_tool_version_impl(
             fetch_npm_latest_for_tool(&client, "@earendil-works/pi-coding-agent", tool, local).await
         }
         "mcode" => fetch_npm_latest_for_tool(&client, "@minimax-ai/code", tool, local).await,
+        "dsh" => None,
         _ => None,
+
     };
 
     ToolVersion {
@@ -1032,6 +1039,40 @@ async fn get_single_tool_version_impl(
         env_type,
         wsl_distro,
     }
+}
+
+#[cfg(target_os = "macos")]
+fn try_get_dsh_desktop_version() -> ShellProbe {
+    let plist = std::path::Path::new("/Applications/DSH Desktop.app/Contents/Info.plist");
+    if !plist.exists() {
+        return ShellProbe::NotFound(NOT_INSTALLED.to_string());
+    }
+    match std::process::Command::new("/usr/bin/plutil")
+        .args(["-extract", "CFBundleShortVersionString", "raw", "-o", "-"])
+        .arg(plist)
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let version = decode_command_output(&output.stdout).trim().to_string();
+            if version.is_empty() {
+                ShellProbe::FoundButFailed("DSH Desktop version is missing".to_string())
+            } else {
+                ShellProbe::Found(version)
+            }
+        }
+        Ok(output) => {
+            ShellProbe::FoundButFailed(last_lines(decode_command_output(&output.stderr).trim(), 4))
+        }
+        Err(error) => ShellProbe::FoundButFailed(format!("Unable to inspect DSH Desktop: {error}")),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn try_get_dsh_desktop_version() -> ShellProbe {
+    // DSH Desktop is only distributed as a macOS .app; other platforms have no
+    // standalone desktop bundle to probe (their DSH CLI detection goes through
+    // try_get_version / try_get_version_wsl in the environment-check flow).
+    ShellProbe::NotFound("DSH Desktop is only available on macOS".to_string())
 }
 
 /// 该工具在 npm 上的预发布通道 tag(靠前者优先)。仅当本地版本已**严格领先**
@@ -5763,6 +5804,7 @@ mod tests {
 
     #[test]
     fn mcode_lifecycle_metadata_skips_non_tty_self_update() {
+
         let requested = vec!["unsupported".to_string(), "mcode".to_string()];
         assert_eq!(normalize_requested_tools(&requested), vec!["mcode"]);
         assert_eq!(tool_display_name("mcode"), "MiniMax Code");
@@ -5798,7 +5840,27 @@ mod tests {
     }
 
     #[test]
+    fn dsh_is_part_of_environment_checks() {
+        assert!(VALID_TOOLS.contains(&"dsh"));
+        assert_eq!(tool_display_name("dsh"), "DeepSeek Harness");
+        // The macOS probe shells out to a locally installed DSH Desktop; CI
+        // runners and machines without DSH must not fail the suite over it.
+        #[cfg(target_os = "macos")]
+        if !std::path::Path::new("/Applications/DSH Desktop.app/Contents/Info.plist").exists() {
+            eprintln!("DSH Desktop not installed; skipping the version probe");
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        match try_get_dsh_desktop_version() {
+            ShellProbe::Found(version) => assert!(!version.is_empty()),
+            _ => panic!("installed DSH Desktop should be detected"),
+        }
+    }
+
+
+    #[test]
     fn mcode_install_root_candidate_follows_platform_layout() {
+
         assert_eq!(
             mcode_install_root_candidate("/opt/mcode/bin/mcode", McodeLayout::Posix),
             "/opt/mcode"
@@ -5980,6 +6042,7 @@ mod tests {
 
     #[test]
     fn test_compare_semver() {
+
         use std::cmp::Ordering;
         assert_eq!(
             compare_semver("2.1.156", "2.1.154"),
