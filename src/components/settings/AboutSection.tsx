@@ -235,13 +235,15 @@ let appVersionCache: string | null = null;
 // 把探测结果按 name 合并进已有列表：替换同名项、追加新项；空列表时直接采用新结果。
 // 组件 state 与模块缓存共用同一套合并语义（单工具与全量探测都经此函数）。
 function mergeToolVersions(
-  prev: ToolVersion[],
-  updated: ToolVersion[],
+  prev: ToolVersion[] | null | undefined,
+  updated: ToolVersion[] | null | undefined,
 ): ToolVersion[] {
-  if (prev.length === 0) return updated;
+  const safePrev = Array.isArray(prev) ? prev : [];
+  if (!Array.isArray(updated)) return safePrev;
+  if (safePrev.length === 0) return updated;
   const byName = new Map(updated.map((t) => [t.name, t]));
-  const merged = prev.map((t) => byName.get(t.name) ?? t);
-  const existing = new Set(prev.map((t) => t.name));
+  const merged = safePrev.map((t) => byName.get(t.name) ?? t);
+  const existing = new Set(safePrev.map((t) => t.name));
   for (const u of updated) {
     if (!existing.has(u.name)) merged.push(u);
   }
@@ -259,7 +261,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   );
   const [isDownloading, setIsDownloading] = useState(false);
   const [toolVersions, setToolVersions] = useState<ToolVersion[]>(
-    () => toolVersionsCache?.data ?? [],
+    () => (Array.isArray(toolVersionsCache?.data) ? toolVersionsCache.data : []),
   );
   // 有缓存（哪怕已超期）就先展示旧值、初始不 loading；超期时由挂载副作用触发后台
   // 重查（stale-while-revalidate）。无缓存（首次）才从 loading 起步。
@@ -308,7 +310,8 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   );
 
   const toolVersionByName = useMemo(() => {
-    return new Map(toolVersions.map((tool) => [tool.name, tool]));
+    const list = Array.isArray(toolVersions) ? toolVersions : [];
+    return new Map(list.map((tool) => [tool.name, tool]));
   }, [toolVersions]);
 
   const updatableToolNames = useMemo(

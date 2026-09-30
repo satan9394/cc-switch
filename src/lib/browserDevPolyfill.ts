@@ -809,7 +809,7 @@ export function installBrowserDevPolyfill() {
       }
 
       case "get_request_logs": {
-        const now = Date.now();
+        const nowSec = Math.floor(Date.now() / 1000);
         const logs: RequestLog[] = [
           {
             requestId: "req-dsh-001",
@@ -831,7 +831,7 @@ export function installBrowserDevPolyfill() {
             isStreaming: true,
             latencyMs: 720,
             statusCode: 200,
-            createdAt: now - 120000,
+            createdAt: nowSec - 120,
             dataSource: "Proxy Gateway",
           },
           {
@@ -854,7 +854,7 @@ export function installBrowserDevPolyfill() {
             isStreaming: true,
             latencyMs: 890,
             statusCode: 200,
-            createdAt: now - 360000,
+            createdAt: nowSec - 360,
             dataSource: "Proxy Gateway",
           },
           {
@@ -877,7 +877,7 @@ export function installBrowserDevPolyfill() {
             isStreaming: true,
             latencyMs: 540,
             statusCode: 200,
-            createdAt: now - 720000,
+            createdAt: nowSec - 720,
             dataSource: "Session Sync",
           },
           {
@@ -900,7 +900,7 @@ export function installBrowserDevPolyfill() {
             isStreaming: true,
             latencyMs: 410,
             statusCode: 200,
-            createdAt: now - 1200000,
+            createdAt: nowSec - 1200,
             dataSource: "Proxy Gateway",
           },
         ];
@@ -1220,6 +1220,41 @@ export function installBrowserDevPolyfill() {
 
       case "plugin:app|version":
         return "3.20.4";
+
+      // ===== Tool Versions & Lifecycle =====
+      case "get_tool_versions": {
+        const tools = (args?.tools as string[]) || [
+          "claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes", "pi", "mcode", "dsh"
+        ];
+        const mockVersions: Record<string, { version: string; latest: string }> = {
+          claude: { version: "2.1.3", latest: "2.1.3" },
+          codex: { version: "1.2.0", latest: "1.2.0" },
+          gemini: { version: "0.8.2", latest: "0.8.2" },
+          grok: { version: "1.0.0", latest: "1.0.0" },
+          opencode: { version: "2.0.12", latest: "2.0.12" },
+          openclaw: { version: "1.1.0", latest: "1.1.0" },
+          hermes: { version: "0.5.0", latest: "0.5.0" },
+          pi: { version: "0.3.1", latest: "0.3.1" },
+          mcode: { version: "0.4.0", latest: "0.4.0" },
+          dsh: { version: "1.0.0", latest: "1.0.0" },
+        };
+        return tools.map((name) => ({
+          name,
+          version: mockVersions[name]?.version ?? "1.0.0",
+          latest_version: mockVersions[name]?.latest ?? "1.0.0",
+          error: null,
+          installed_but_broken: false,
+          env_type: "windows",
+          wsl_distro: null,
+        }));
+      }
+
+      case "probe_tool_installations":
+      case "get_tool_diagnostic_report":
+        return [];
+
+      case "run_tool_lifecycle_action":
+        return true;
 
       // ===== Health & Failover =====
       case "get_provider_health":
